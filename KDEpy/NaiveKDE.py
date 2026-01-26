@@ -174,12 +174,13 @@ class NaiveKDE(BaseKDE):
         >>> kde_log = NaiveKDE(kernel='log_gaussian').fit(data)
         >>> x, y = kde.evaluate()
         >>> _, y_log = kde_log.evaluate_log()
+        >>> # They give the same result when converting back from log probability
         >>> np.allclose(y, np.exp(y_log))
         True
-        >>> # Using evaluate_log directly is more stable for log probabilities
-        >>> # as the minimum value is much lower than np.log(np.finfo(float).eps)
+        >>> # Using evaluate_log directly is more stable for log probability as
+        >>> # the minimum value is much lower than np.log(np.finfo(float).eps)
         >>> np.log(y).min(), y_log.min()
-        (-52.69621698493156, -36.04365333051906)
+        (-36.04365333051906, -52.69621698493156)
         >>> np.log(np.finfo(float).eps)
         -36.04365338911715
         """
