@@ -173,7 +173,10 @@ class NaiveKDE(BaseKDE):
         >>> # Only supported for Gaussian kernel
         >>> kde_log = NaiveKDE(kernel='log_gaussian').fit(data)
         >>> x, y = kde.evaluate()
-        >>> _, y_log = kde_log.evaluate_log()
+        >>> x_log, y_log = kde_log.evaluate_log()
+        >>> # They give the same grid points
+        >>> np.allclose(x, x_log)
+        True
         >>> # They give the same result when converting back from log probability
         >>> np.allclose(y, np.exp(y_log))
         True
