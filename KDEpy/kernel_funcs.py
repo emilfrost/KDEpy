@@ -170,6 +170,12 @@ def gaussian(x, dims=1):
     return np.exp(-dist_sq / 2) / normalization
 
 
+def log_gaussian(x, dims=1):
+    normalization = dims * gauss_integral(dims - 1)
+    exponent = -0.5 * x**2
+    return exponent, normalization
+
+
 def box(x, dims=1):
     normalization = 1
     out = np.zeros_like(x)
@@ -343,6 +349,79 @@ class Kernel(collections.abc.Callable):
     __call__ = evaluate
 
 
+class LogGaussian(Kernel):
+    """
+    Kernel class for the logarithm of the Gaussian (normal) kernel.
+
+    This class computes the log-value and normalization constant of the Gaussian kernel
+    for given input data. It is useful for applications where working with log-probabilities
+    is numerically more stable or required (e.g., log-likelihood calculations).
+
+    Example
+    -------
+    >>> import numpy as np
+    >>> from KDEpy.kernel_funcs import log_gaussian, gaussian
+    >>> x = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]])
+    >>> logval, normalization = log_gaussian.evaluate(x, bw=1)
+    >>> logval
+    array([-0., -1., -4.])
+    >>> normalization  # 2 pi
+    6.283185307179585
+    >>> # Compare with standard Gaussian kernel
+    >>> kde_val = gaussian.evaluate(x, bw=1)
+    >>> np.allclose(np.exp(logval) / normalization, kde_val)
+    True
+    """
+    def evaluate(self, x, bw=1, norm=2):
+        """
+        Evaluate the kernel and return the log-value and normalization.
+
+        Parameters
+        ----------
+        x : array-like
+            Input data, should have shape (obs, dims).
+        bw : float or array-like
+            Bandwidth, must have shape (obs,) or be a float.
+        norm : int or float, optional
+            The norm to use for distance calculation (default is 2).
+
+        Returns
+        -------
+        logval : ndarray
+            Logarithm of the kernel function evaluated at the input points.
+        normalization : float
+            Normalization constant for the kernel function.
+        """
+        # If x is a number, convert it to a length-1 NumPy vector
+        if isinstance(x, numbers.Number):
+            x = np.asarray_chkfinite([x])
+        else:
+            x = np.asarray_chkfinite(x)
+
+        if len(x.shape) == 1:
+            x = x.reshape(-1, 1)
+
+        # Scale the function, such that bw=1 corresponds to the function having
+        # a standard deviation (or variance) equal to 1
+        real_bw = bw / np.sqrt(self.var)
+        dims = x.shape[-1]
+
+        # Set the volume function
+        volume_func = functools.partial(volume_unit_ball, p=norm)
+
+        # Exponent and normalization of the Gaussian kernel
+        logval = np.einsum("...j, ...j -> ...", x, x)  # Euclidean norm squared
+        logval *= -0.5 / real_bw ** 2
+        normalization = (
+            dims * gauss_integral(dims - 1) * real_bw ** dims * volume_func(dims)
+        )
+        return logval, normalization
+
+    __call__ = evaluate
+    practical_support = Kernel(gaussian, var=1, support=np.inf).practical_support
+
+
+log_gaussian = LogGaussian(log_gaussian, var=1, support=np.inf)
 gaussian = Kernel(gaussian, var=1, support=np.inf)
 exp = Kernel(exponential, var=2, support=np.inf)
 box = Kernel(box, var=1 / 3, support=1)
@@ -356,6 +435,7 @@ logistic = Kernel(logistic, var=(np.pi**2 / 3), support=np.inf)
 sigmoid = Kernel(sigmoid, var=(np.pi**2 / 4), support=np.inf)
 
 _kernel_functions = {
+    "log_gaussian": log_gaussian,
     "gaussian": gaussian,
     "exponential": exp,
     "box": box,
