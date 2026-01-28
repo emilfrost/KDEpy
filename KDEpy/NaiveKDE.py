@@ -168,6 +168,7 @@ class NaiveKDE(BaseKDE):
         --------
         >>> import numpy as np
         >>> from KDEpy import NaiveKDE
+        >>>
         >>> data = np.random.normal(size=(100, 3))
         >>> kde = NaiveKDE(kernel='gaussian').fit(data)
         >>> # Only supported for Gaussian kernel
@@ -181,10 +182,11 @@ class NaiveKDE(BaseKDE):
         >>> np.allclose(y, np.exp(y_log))
         True
         >>> # Using evaluate_log directly is more stable for log probability as
-        >>> # the minimum value is much lower than np.log(np.finfo(float).eps)
+        >>> # the minimum value is lower than the float limit.
         >>> np.log(y).min(), y_log.min()
         (-36.04365333051906, -52.69621698493156)
-        >>> np.log(np.finfo(float).eps)
+        >>> # Double precision float limit for log probability
+        >>> np.log(np.finfo(np.float64).eps)
         -36.04365338911715
         """
         assert self.kernel is log_gaussian, (type(self.kernel), self.kernel)
