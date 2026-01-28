@@ -4,7 +4,7 @@
 Module for the FFTKDE.
 """
 import numbers
-from typing import Callable, Optional, Union
+from typing import Callable, Literal, Optional, Union
 import warnings
 
 import numpy as np
@@ -214,6 +214,7 @@ class FFTKDE(BaseKDE):
         self,
         grid_points: Optional[Union[np.ndarray, int, tuple]] = None,
         bw_scale: float = 1.0,
+        memory_mode: Literal["vectorized", "loop"] | int = 128,
     ) -> Union[np.ndarray, tuple]:
         """
         Evaluate the logarithm of the KDE on grid points.
@@ -231,6 +232,15 @@ class FFTKDE(BaseKDE):
             support. Increasing bw_scale is useful to increase sensitivity to
             the tails of the kernel and thereby decrease the minimum possible
             (finite) log probability.
+        memory_mode : {"vectorized", "loop"} or int, default=128
+            Controls the memory usage and computation strategy:
+            - "vectorized": Fully vectorized computation (uses most memory, but
+                            fastest for small grids).
+            - "loop" or 1: Loop over each output element (slowest, uses least
+                           memory).
+            - int: Chunked computation, processes `memory_mode` output elements
+                   at a time (balanced memory and speed). This is usually the
+                   fastest mode for large grids.
 
         Returns
         -------
@@ -338,7 +348,9 @@ class FFTKDE(BaseKDE):
             )
             log_kernel -= np.log(normalization)
             log_kernel = log_kernel.reshape(*[int(k * 2 + 1) for k in L])
-            ans = log_convolve(data, log_kernel=log_kernel).reshape(-1, 1)
+            ans = log_convolve(
+                data, log_kernel=log_kernel, memory_mode=memory_mode
+            ).reshape(-1, 1)
         else:
             kernel_weights = self.kernel(
                 kernel_grid, bw=self.bw, norm=self.norm
@@ -346,7 +358,9 @@ class FFTKDE(BaseKDE):
             kernel_weights = kernel_weights.reshape(
                 *[int(k * 2 + 1) for k in L]
             )
-            ans = log_convolve(data, kernel_weights).reshape(-1, 1)
+            ans = log_convolve(
+                data, kernel_weights, memory_mode=memory_mode
+            ).reshape(-1, 1)
 
         return self._evalate_return_logic(ans, self.grid_points)
 

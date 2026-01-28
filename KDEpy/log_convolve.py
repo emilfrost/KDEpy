@@ -22,7 +22,7 @@ def log_convolve(
     kernel: np.ndarray | None = None,
     *,
     log_kernel: np.ndarray | None = None,
-    memory_mode: Literal["vectorized", "loop"] | int = 1000,
+    memory_mode: Literal["vectorized", "loop"] | int = 128,
 ) -> np.ndarray:
     """
     Calculate the logarithm of an N-dimensional convolution using the
@@ -39,7 +39,7 @@ def log_convolve(
         Either `kernel` or `log_kernel` must be provided.
     log_kernel : np.ndarray, optional
         The logarithm of the kernel. If provided, `kernel` must be None.
-    memory_mode : {"vectorized", "loop"} or int, default=1000
+    memory_mode : {"vectorized", "loop"} or int, default=128
         Controls the memory usage and computation strategy:
         - "vectorized": Fully vectorized computation (fastest, uses most memory).
         - "loop" or 1: Loop over each output element (slowest, uses least memory).
