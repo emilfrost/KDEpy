@@ -24,26 +24,49 @@ def log_convolve(
     log_kernel: np.ndarray | None = None,
     memory_mode: Literal["vectorized", "loop"] | int = 1000,
 ) -> np.ndarray:
-    """Calculate the log of an N-dimensional convolution. This is done using
-    the log-sum-exp trick to avoid numerical underflow. The input is
-    zero-padded as needed - equivalent to 'same' mode in scipy.signal.convolve.
-    Three memory modes are available: "vectorized", "loop", and an integer
-    specifying the chunk size of numbers in the output to compute at once.
+    """
+    Calculate the logarithm of an N-dimensional convolution using the
+    log-sum-exp trick. This avoids numerical underflow but is otherwise
+    equivalent to taking the logarithm of the convolution computed with 'same'
+    mode in scipy.signal.convolve.
 
-    The quantity computed is the log of the sum of products over all kernel
-    positions:
-        out[i1, i2, ..., iN] = log(
-            sum_{j1, j2, ..., jN} (
-                array[i1 - j1, i2 - j2, ..., iN - jN] *
-                kernel[j1, j2, ..., jN]
-            )
-        )
-    which is equivalent to:
-        out[i1, i2, ..., iN] = logsumexp_{j1, j2, ..., jN} (
-            log(array[i1 + j1, i2 + j2, ..., iN + jN]) +
-            log(kernel[-j1, -j2, ..., -jN])
-        )
-    where j1, j2, ..., jN run over the kernel dimensions.
+    Parameters
+    ----------
+    array : np.ndarray
+        The input array to be convolved. Must be non-negative.
+    kernel : np.ndarray, optional
+        The kernel array. Must have odd dimensions and be non-negative.
+        Either `kernel` or `log_kernel` must be provided.
+    log_kernel : np.ndarray, optional
+        The logarithm of the kernel. If provided, `kernel` must be None.
+    memory_mode : {"vectorized", "loop"} or int, default=1000
+        Controls the memory usage and computation strategy:
+        - "vectorized": Fully vectorized computation (fastest, uses most memory).
+        - "loop" or 1: Loop over each output element (slowest, uses least memory).
+        - int: Chunked computation, processes `memory_mode` output elements at
+               a time (balanced memory and speed).
+
+    Returns
+    -------
+    out : np.ndarray
+        The result of the log-convolution, with the same shape as `array`.
+
+    Notes
+    -----
+    The function computes:
+        out[i1, i2, ..., iN] = log(sum_j(array[...] * kernel[...]))
+    using the log-sum-exp trick for numerical stability:
+        out[i1, ..., iN] = logsumexp_j(log(array[...]) + log(kernel[...]))
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from KDEpy.log_convolve import log_convolve
+    >>> array = np.array([1.0, 2.0, 3.0, 4.0])
+    >>> kernel = np.array([0.25, 0.5, 0.25])
+    >>> log_conv = log_convolve(array, kernel)
+    >>> np.allclose(np.exp(log_conv), np.convolve(array, kernel, mode='same'))
+    True
     """
     if kernel is None:
         if log_kernel is None:
