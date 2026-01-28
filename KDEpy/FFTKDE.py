@@ -3,114 +3,21 @@
 """
 Module for the FFTKDE.
 """
+
 import numbers
-from typing import Callable, Optional, Union, Literal
 import warnings
+from typing import Callable, Optional, Union
 
 import numpy as np
-from numpy.lib.stride_tricks import sliding_window_view
 from scipy.signal import convolve
-from scipy.special import logsumexp
-
-from KDEpy.BaseKDE import BaseKDE
-from KDEpy.binning import linear_binning
-from KDEpy.utils import cartesian
-from KDEpy.kernel_funcs import log_gaussian, gaussian
 
 # noinspection PyProtectedMember, PyUnresolvedReferences
 from KDEpy._cutils import grid_is_sorted
-
-
-def nice_log(
-    x: np.ndarray, eps: float | None = None, check_negative: bool = True
-) -> np.ndarray:
-    """Compute the logarithm of x, handling zero and negative values."""
-    if check_negative and np.any(x < 0):
-        raise ValueError("Input contains negative values.")
-    mask = x > 0
-    log_x = np.full_like(x, fill_value=-np.inf, dtype=np.float64)
-    log_x[mask] = np.log(x[mask]) if eps is None else np.log(x[mask] + eps)
-    return log_x
-
-
-def log_convolve(
-    array: np.ndarray,
-    kernel: np.ndarray,
-    memory_mode: Literal["vectorized", "loop"] | int = 1000,
-) -> np.ndarray:
-    """Calculate the log of an N-dimensional convolution. This is done using
-    the log-sum-exp trick to avoid numerical underflow/overflow. The input is
-    zero-padded as needed - equivalent to 'same' mode in scipy.signal.convolve.
-    Three memory modes are available: "vectorized", "loop", and an integer
-    specifying the chunk size of numbers in the output to compute at once.
-
-    The quantity computed is the log of the sum of products over all kernel
-    positions:
-        out[i1, i2, ..., iN] = log(
-            sum_{j1, j2, ..., jN} (
-                array[i1 - j1, i2 - j2, ..., iN - jN] *
-                kernel[j1, j2, ..., jN]
-            )
-        )
-    which is equivalent to:
-        out[i1, i2, ..., iN] = logsumexp_{j1, j2, ..., jN} (
-            log(array[i1 + j1, i2 + j2, ..., iN + jN]) +
-            log(kernel[-j1, -j2, ..., -jN])
-        )
-    where j1, j2, ..., jN run over the kernel dimensions.
-    """
-    if np.any(np.mod(kernel.shape, 2) == 0):
-        raise ValueError(f"Kernel dimensions must be odd. Got {kernel.shape}.")
-
-    # Take the log of the input array and kernel.
-    log_array = nice_log(array)
-    log_kernel = nice_log(kernel)
-
-    # Pad the input array with -inf values (this is log(0)). The amount of
-    # padding is half the kernel size in each dimension to match 'same' mode.
-    array_padded = np.pad(
-        log_array,
-        pad_width=[(dim // 2, dim // 2) for dim in kernel.shape],
-        mode="constant",
-        constant_values=-np.inf,
-    )
-
-    # Flip the kernel for convolution.
-    log_kernel_flip = np.ascontiguousarray(np.flip(log_kernel))
-
-    # Create views of all sliding windows of the input array with the same
-    # shape as the kernel.
-    windows = sliding_window_view(array_padded, kernel.shape)
-    kernel_axes = tuple(range(-kernel.ndim, 0))
-
-    # Compute the output using the specified memory mode.
-    if memory_mode == "vectorized":
-        return logsumexp(
-            windows + log_kernel_flip, axis=kernel_axes
-        )  # type: ignore
-    elif memory_mode == "loop" or memory_mode == 1:
-        out = np.zeros_like(array, dtype=np.float64)
-        tmp = np.zeros_like(log_kernel_flip)
-        with np.nditer(
-            out, flags=["multi_index"], op_flags=[["writeonly"]]
-        ) as it:
-            while not it.finished:
-                np.add(windows[it.multi_index], log_kernel_flip, out=tmp)
-                it[0] = logsumexp(tmp)
-                it.iternext()
-        return out
-    elif isinstance(memory_mode, int):
-        chunk = min(memory_mode, array.size)
-        out = np.zeros_like(array, dtype=np.float64)
-        tmp = np.zeros((chunk,) + kernel.shape, dtype=np.float64)
-        for start in range(0, array.size, chunk):
-            end = min(start + chunk, array.size)
-            idxs = np.unravel_index(np.arange(start, end), array.shape)
-            np.add(windows[idxs], log_kernel_flip, out=tmp[: end - start])
-            out[idxs] = logsumexp(tmp[: end - start], axis=kernel_axes)
-        return out
-    else:
-        raise ValueError(f"Unknown memory_mode: {memory_mode}")
+from KDEpy.BaseKDE import BaseKDE
+from KDEpy.binning import linear_binning
+from KDEpy.kernel_funcs import gaussian, log_gaussian
+from KDEpy.log_convolve import log_convolve
+from KDEpy.utils import cartesian
 
 
 class FFTKDE(BaseKDE):
@@ -145,10 +52,6 @@ class FFTKDE(BaseKDE):
         is the standard deviation of the kernel. If a string it passed, it
         is the bandwidth selection method, see cls._bw_methods.keys() for
         choices.
-    bw_scale: float
-        A scaling factor for kernel bandwidth when evaluating the log KDE.
-        Increasing bw_scale is useful to increase sensitivity to the tails of
-        the kernel and thereby decrease the minimum possible log probability.
 
     Examples
     --------
@@ -177,14 +80,14 @@ class FFTKDE(BaseKDE):
         kernel: Union[str, Callable] = "gaussian",
         bw: Union[float, str] = 1,
         norm: int = 2,
-        bw_scale: float = 2.0
     ):
         self.norm = norm
-        self.bw_scale = bw_scale
         super().__init__(kernel, bw)
         assert isinstance(self.norm, numbers.Number) and self.norm > 0
 
-    def fit(self, data: np.ndarray, weights: Optional[np.ndarray] = None) -> "FFTKDE":
+    def fit(
+        self, data: np.ndarray, weights: Optional[np.ndarray] = None
+    ) -> "FFTKDE":
         """
         Fit the KDE to the data. This validates the data and stores it.
         Computations are performed upon evaluation on a specific grid.
@@ -214,7 +117,9 @@ class FFTKDE(BaseKDE):
         super().fit(data, weights)
         return self
 
-    def evaluate(self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None) -> Union[np.ndarray, tuple]:
+    def evaluate(
+        self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None
+    ) -> Union[np.ndarray, tuple]:
         """
         Evaluate on equidistant grid points.
 
@@ -243,10 +148,6 @@ class FFTKDE(BaseKDE):
         >>> x_grid = np.linspace(-10, 25, num=2**10)  # <- Must be equidistant
         >>> y = kde.evaluate(x_grid)  # Notice that only y is returned
         """
-        if self.kernel is log_gaussian:
-            raise TypeError(
-                "Use the `evaluate_log` method instead with kernel='gaussian'."
-            )
         # This method sets self.grid_points and verifies it
         super().evaluate(grid_points)
 
@@ -271,11 +172,17 @@ class FFTKDE(BaseKDE):
 
         # Step 1 - Obtaining the grid counts
         # TODO: Consider moving this to the fitting phase instead
-        data = linear_binning(self.data, grid_points=self.grid_points, weights=self.weights)
+        data = linear_binning(
+            self.data, grid_points=self.grid_points, weights=self.weights
+        )
 
         # Step 2 - Computing kernel weights
         g_shape = self.grid_points.shape[1]
-        num_grid_points = np.array(list(len(np.unique(self.grid_points[:, i])) for i in range(g_shape)))
+        num_grid_points = np.array(
+            list(
+                len(np.unique(self.grid_points[:, i])) for i in range(g_shape)
+            )
+        )
 
         num_intervals = num_grid_points - 1
         dx = (max_grid - min_grid) / num_intervals
@@ -297,7 +204,10 @@ class FFTKDE(BaseKDE):
         assert (dx * L <= real_bw).all()
 
         # Evaluate the kernel once
-        grids = [np.linspace(-dx * L, dx * L, int(L * 2 + 1)) for (dx, L) in zip(dx, L)]
+        grids = [
+            np.linspace(-dx * L, dx * L, int(L * 2 + 1))
+            for (dx, L) in zip(dx, L)
+        ]
         kernel_grid = cartesian(grids)
         kernel_weights = self.kernel(kernel_grid, bw=self.bw, norm=self.norm)
 
@@ -317,7 +227,11 @@ class FFTKDE(BaseKDE):
 
         return self._evalate_return_logic(ans, self.grid_points)
 
-    def evaluate_log(self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None) -> Union[np.ndarray, tuple]:
+    def evaluate_log(
+        self,
+        grid_points: Optional[Union[np.ndarray, int, tuple]] = None,
+        bw_scale: float = 1.0,
+    ) -> Union[np.ndarray, tuple]:
         """
         Evaluate the logarithm of the KDE on grid points.
 
@@ -329,6 +243,11 @@ class FFTKDE(BaseKDE):
             points on an equidistant grid. If a tuple is passed, it's the
             number of grid points in each dimension. If None, a grid will be
             automatically created.
+        bw_scale: float
+            A scaling factor for the used bandwidth of kernels with infinite
+            support. Increasing bw_scale is useful to increase sensitivity to
+            the tails of the kernel and thereby decrease the minimum possible
+            log probability.
 
         Returns
         -------
@@ -384,11 +303,18 @@ class FFTKDE(BaseKDE):
 
         # Step 1 - Obtaining the grid counts
         # TODO: Consider moving this to the fitting phase instead
-        data = linear_binning(self.data, grid_points=self.grid_points, weights=self.weights)
+        data = linear_binning(
+            self.data, grid_points=self.grid_points, weights=self.weights
+        )
 
         # Step 2 - Computing kernel weights
         g_shape = self.grid_points.shape[1]
-        num_grid_points = np.array(list(len(np.unique(self.grid_points[:, i])) for i in range(g_shape)))
+        num_grid_points = np.array(
+            list(
+                len(np.unique(self.grid_points[:, i])) for i in range(g_shape)
+            )
+        )
+        data = data.reshape(*tuple(num_grid_points))
 
         num_intervals = num_grid_points - 1
         dx = (max_grid - min_grid) / num_intervals
@@ -405,25 +331,39 @@ class FFTKDE(BaseKDE):
             except AttributeError:
                 real_bw = self.kernel.practical_support(self.bw)
 
-        # For log evaluation, increase the bandwidth to be more sensitive to
-        # the tails of the kernel
-        real_bw *= self.bw_scale
+            # For log evaluation, increase the bandwidth to be more sensitive
+            # to the tails of the kernel
+            real_bw *= bw_scale
 
         # Compute L, the number of dx'es to move out from 0 in kernel
         L = np.minimum(np.floor(real_bw / dx), num_intervals + 1)
         assert (dx * L <= real_bw).all()
 
         # Evaluate the kernel once
-        grids = [np.linspace(-dx * L, dx * L, int(L * 2 + 1)) for (dx, L) in zip(dx, L)]
+        grids = [
+            np.linspace(-dx * L, dx * L, int(L * 2 + 1))
+            for (dx, L) in zip(dx, L)
+        ]
         kernel_grid = cartesian(grids)
-        kernel_weights = self.kernel(kernel_grid, bw=self.bw, norm=self.norm)
 
-        # Reshape in preparation to
-        kernel_weights = kernel_weights.reshape(*[int(k * 2 + 1) for k in L])
-        data = data.reshape(*tuple(num_grid_points))
-
-        # Step 3 - Performing the convolution
-        ans = log_convolve(data, kernel_weights).reshape(-1, 1)
+        # Step 3 - Performing the convolution with the log-sum-exp trick.
+        # If the kernel is Gaussian, we compute the exponent directly and feed
+        # it to the log_convolve function for better numerical stability.
+        if self.kernel is gaussian:
+            log_kernel, normalization = log_gaussian(
+                kernel_grid, bw=self.bw, norm=self.norm
+            )
+            log_kernel -= np.log(normalization)
+            log_kernel = log_kernel.reshape(*[int(k * 2 + 1) for k in L])
+            ans = log_convolve(data, log_kernel=log_kernel).reshape(-1, 1)
+        else:
+            kernel_weights = self.kernel(
+                kernel_grid, bw=self.bw, norm=self.norm
+            )
+            kernel_weights = kernel_weights.reshape(
+                *[int(k * 2 + 1) for k in L]
+            )
+            ans = log_convolve(data, kernel_weights).reshape(-1, 1)
 
         return self._evalate_return_logic(ans, self.grid_points)
 

@@ -3,6 +3,7 @@
 """
 Module for the NaiveKDE.
 """
+
 import itertools
 import numbers
 from typing import Callable, Optional, Union
@@ -11,7 +12,7 @@ import numpy as np
 from scipy.special import logsumexp
 
 from KDEpy.BaseKDE import BaseKDE
-from KDEpy.kernel_funcs import log_gaussian
+from KDEpy.kernel_funcs import gaussian, log_gaussian
 
 
 class NaiveKDE(BaseKDE):
@@ -33,9 +34,6 @@ class NaiveKDE(BaseKDE):
         point.
     norm : float
         The p-norm used to compute the distances in higher dimensions.
-    block_size : int
-        When evaluating the log KDE, this is the number of grid points to
-        process in one block. Decrease this value to reduce memory consumption.
 
     Examples
     --------
@@ -58,13 +56,17 @@ class NaiveKDE(BaseKDE):
     """
 
     def __init__(
-        self, kernel: Union[str, Callable] = "gaussian", bw: Union[float, str, np.ndarray] = 1, norm: float = 2, block_size: int = 1000
+        self,
+        kernel: Union[str, Callable] = "gaussian",
+        bw: Union[float, str, np.ndarray] = 1,
+        norm: float = 2,
     ):
         super().__init__(kernel, bw)
         self.norm = norm
-        self.block_size = block_size
 
-    def fit(self, data: np.ndarray, weights: Optional[np.ndarray] = None) -> "NaiveKDE":
+    def fit(
+        self, data: np.ndarray, weights: Optional[np.ndarray] = None
+    ) -> "NaiveKDE":
         """
         Fit the KDE to the data. This validates the data and stores it.
         Computations are performed when the KDE is evaluated on a grid.
@@ -94,7 +96,9 @@ class NaiveKDE(BaseKDE):
         super().fit(data, weights)
         return self
 
-    def evaluate(self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None) -> Union[np.ndarray, tuple]:
+    def evaluate(
+        self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None
+    ) -> Union[np.ndarray, tuple]:
         """
         Evaluate on grid points.
 
@@ -121,7 +125,6 @@ class NaiveKDE(BaseKDE):
         >>> x, y = kde.evaluate(256)
         >>> y = kde.evaluate(x)
         """
-        assert self.kernel is not log_gaussian, (type(self.kernel), self.kernel)
         # This method sets self.grid points and verifies it
         # NaiveKDE does not convert the bw to a scalar, since a vector is
         # allowed too.
@@ -137,7 +140,11 @@ class NaiveKDE(BaseKDE):
 
         # TODO: Implementation w.r.t grid points for faster evaluation
         # See the SciPy evaluation for how this can be done
-        weights = itertools.repeat(1 / self.data.shape[0]) if self.weights is None else self.weights
+        weights = (
+            itertools.repeat(1 / self.data.shape[0])
+            if self.weights is None
+            else self.weights
+        )
 
         for weight, data_point, bw in zip(weights, self.data, bw):
             x = self.grid_points - data_point
@@ -145,7 +152,11 @@ class NaiveKDE(BaseKDE):
 
         return self._evalate_return_logic(evaluated, self.grid_points)
 
-    def evaluate_log(self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None) -> Union[np.ndarray, tuple]:
+    def evaluate_log(
+        self,
+        grid_points: Optional[Union[np.ndarray, int, tuple]] = None,
+        block: int = 1000,
+    ) -> Union[np.ndarray, tuple]:
         """
         Evaluate the logarithm of the KDE on grid points.
 
@@ -157,6 +168,9 @@ class NaiveKDE(BaseKDE):
             points on an equidistant grid. If a tuple is passed, it's the
             number of grid points in each dimension. If None, a grid will be
             automatically created.
+        block : int
+            Number of grid points to process at once. Decrease this value to
+            reduce memory consumption or increase to speed up evaluation.
 
         Returns
         -------
@@ -171,10 +185,9 @@ class NaiveKDE(BaseKDE):
         >>>
         >>> data = np.random.normal(size=(100, 3))
         >>> kde = NaiveKDE(kernel='gaussian').fit(data)
-        >>> # Only supported for Gaussian kernel
-        >>> kde_log = NaiveKDE(kernel='log_gaussian').fit(data)
         >>> x, y = kde.evaluate()
-        >>> x_log, y_log = kde_log.evaluate_log()
+        >>> # Only supported for Gaussian kernel
+        >>> x_log, y_log = kde.evaluate_log()
         >>> # They give the same grid points
         >>> np.allclose(x, x_log)
         True
@@ -189,7 +202,11 @@ class NaiveKDE(BaseKDE):
         >>> np.log(np.finfo(np.float64).eps)
         -36.04365338911715
         """
-        assert self.kernel is log_gaussian, (type(self.kernel), self.kernel)
+        if self.kernel is not gaussian:
+            raise NotImplementedError(
+                "Log evaluation is only implemented for the Gaussian kernel. "
+                f"Got {self.kernel}."
+            )
         # This method sets self.grid points and verifies it
         # NaiveKDE does not convert the bw to a scalar, since a vector is
         # allowed too.
@@ -203,23 +220,26 @@ class NaiveKDE(BaseKDE):
         if isinstance(bw, numbers.Number):
             bw = np.asarray(np.ones(self.data.shape[0]) * bw, dtype=float)
 
-        weights = np.full_like(bw, 1 / self.data.shape[0]) if self.weights is None else self.weights
+        weights = (
+            np.full_like(bw, 1 / self.data.shape[0])
+            if self.weights is None
+            else self.weights
+        )
 
         # Number of grid points to process in one
-        block = self.block_size
         for start_idx in range(0, self.grid_points.shape[0], block):
             end_idx = start_idx + block
             grid_block = self.grid_points[start_idx:end_idx]
 
-            x = grid_block[:, None, :] - self.data[None, :, :]  # Shape (block, data, dims)
+            x = (
+                grid_block[:, None, :] - self.data[None, :, :]
+            )  # Shape (block, data, dims)
             # logval.shape = (block, data)
-            logval, norm = self.kernel(x, bw=bw, norm=self.norm)
-            b = weights / norm  # Shape (data,)
+            logval, normalization = log_gaussian(x, bw=bw, norm=self.norm)
+            b = weights / normalization  # Shape (data,)
 
             evaluated[start_idx:end_idx] = logsumexp(logval, b=b, axis=1)
         return self._evalate_return_logic(evaluated, self.grid_points)
-
-
 
 
 if __name__ == "__main__":

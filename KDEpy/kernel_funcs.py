@@ -435,7 +435,6 @@ logistic = Kernel(logistic, var=(np.pi**2 / 3), support=np.inf)
 sigmoid = Kernel(sigmoid, var=(np.pi**2 / 4), support=np.inf)
 
 _kernel_functions = {
-    "log_gaussian": log_gaussian,
     "gaussian": gaussian,
     "exponential": exp,
     "box": box,
