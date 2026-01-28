@@ -170,12 +170,6 @@ def gaussian(x, dims=1):
     return np.exp(-dist_sq / 2) / normalization
 
 
-def log_gaussian(x, dims=1):
-    normalization = dims * gauss_integral(dims - 1)
-    exponent = -0.5 * x**2
-    return exponent, normalization
-
-
 def box(x, dims=1):
     normalization = 1
     out = np.zeros_like(x)
@@ -372,7 +366,10 @@ class LogGaussian(Kernel):
     >>> np.allclose(np.exp(logval) / normalization, kde_val)
     True
     """
-    def evaluate(self, x, bw=1, norm=2):
+
+    def evaluate(
+        self, x, bw=1, norm=2
+    ) -> tuple[np.ndarray, float | np.ndarray]:
         """
         Evaluate the kernel and return the log-value and normalization.
 
@@ -411,17 +408,19 @@ class LogGaussian(Kernel):
 
         # Exponent and normalization of the Gaussian kernel
         logval = np.einsum("...j, ...j -> ...", x, x)  # Euclidean norm squared
-        logval *= -0.5 / real_bw ** 2
+        logval *= -0.5 / real_bw**2
         normalization = (
-            dims * gauss_integral(dims - 1) * real_bw ** dims * volume_func(dims)
+            dims * gauss_integral(dims - 1) * real_bw**dims * volume_func(dims)
         )
         return logval, normalization
 
     __call__ = evaluate
-    practical_support = Kernel(gaussian, var=1, support=np.inf).practical_support
+    practical_support = Kernel(
+        gaussian, var=1, support=np.inf
+    ).practical_support
 
 
-log_gaussian = LogGaussian(log_gaussian, var=1, support=np.inf)
+log_gaussian = LogGaussian(lambda: None, var=1, support=np.inf)
 gaussian = Kernel(gaussian, var=1, support=np.inf)
 exp = Kernel(exponential, var=2, support=np.inf)
 box = Kernel(box, var=1 / 3, support=1)

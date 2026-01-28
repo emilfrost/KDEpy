@@ -3,21 +3,21 @@
 """
 Module for the FFTKDE.
 """
-
 import numbers
-import warnings
 from typing import Callable, Optional, Union
+import warnings
 
 import numpy as np
 from scipy.signal import convolve
 
-# noinspection PyProtectedMember, PyUnresolvedReferences
-from KDEpy._cutils import grid_is_sorted
 from KDEpy.BaseKDE import BaseKDE
 from KDEpy.binning import linear_binning
-from KDEpy.kernel_funcs import gaussian, log_gaussian
 from KDEpy.log_convolve import log_convolve
+from KDEpy.kernel_funcs import log_gaussian, gaussian
 from KDEpy.utils import cartesian
+
+# noinspection PyProtectedMember, PyUnresolvedReferences
+from KDEpy._cutils import grid_is_sorted
 
 
 class FFTKDE(BaseKDE):
@@ -75,19 +75,12 @@ class FFTKDE(BaseKDE):
 
     """
 
-    def __init__(
-        self,
-        kernel: Union[str, Callable] = "gaussian",
-        bw: Union[float, str] = 1,
-        norm: int = 2,
-    ):
+    def __init__(self, kernel: Union[str, Callable] = "gaussian", bw: Union[float, str] = 1, norm: int = 2):
         self.norm = norm
         super().__init__(kernel, bw)
         assert isinstance(self.norm, numbers.Number) and self.norm > 0
 
-    def fit(
-        self, data: np.ndarray, weights: Optional[np.ndarray] = None
-    ) -> "FFTKDE":
+    def fit(self, data: np.ndarray, weights: Optional[np.ndarray] = None) -> "FFTKDE":
         """
         Fit the KDE to the data. This validates the data and stores it.
         Computations are performed upon evaluation on a specific grid.
@@ -117,9 +110,7 @@ class FFTKDE(BaseKDE):
         super().fit(data, weights)
         return self
 
-    def evaluate(
-        self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None
-    ) -> Union[np.ndarray, tuple]:
+    def evaluate(self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None) -> Union[np.ndarray, tuple]:
         """
         Evaluate on equidistant grid points.
 
@@ -148,6 +139,7 @@ class FFTKDE(BaseKDE):
         >>> x_grid = np.linspace(-10, 25, num=2**10)  # <- Must be equidistant
         >>> y = kde.evaluate(x_grid)  # Notice that only y is returned
         """
+
         # This method sets self.grid_points and verifies it
         super().evaluate(grid_points)
 
@@ -172,17 +164,11 @@ class FFTKDE(BaseKDE):
 
         # Step 1 - Obtaining the grid counts
         # TODO: Consider moving this to the fitting phase instead
-        data = linear_binning(
-            self.data, grid_points=self.grid_points, weights=self.weights
-        )
+        data = linear_binning(self.data, grid_points=self.grid_points, weights=self.weights)
 
         # Step 2 - Computing kernel weights
         g_shape = self.grid_points.shape[1]
-        num_grid_points = np.array(
-            list(
-                len(np.unique(self.grid_points[:, i])) for i in range(g_shape)
-            )
-        )
+        num_grid_points = np.array(list(len(np.unique(self.grid_points[:, i])) for i in range(g_shape)))
 
         num_intervals = num_grid_points - 1
         dx = (max_grid - min_grid) / num_intervals
@@ -204,10 +190,7 @@ class FFTKDE(BaseKDE):
         assert (dx * L <= real_bw).all()
 
         # Evaluate the kernel once
-        grids = [
-            np.linspace(-dx * L, dx * L, int(L * 2 + 1))
-            for (dx, L) in zip(dx, L)
-        ]
+        grids = [np.linspace(-dx * L, dx * L, int(L * 2 + 1)) for (dx, L) in zip(dx, L)]
         kernel_grid = cartesian(grids)
         kernel_weights = self.kernel(kernel_grid, bw=self.bw, norm=self.norm)
 
@@ -247,7 +230,7 @@ class FFTKDE(BaseKDE):
             A scaling factor for the used bandwidth of kernels with infinite
             support. Increasing bw_scale is useful to increase sensitivity to
             the tails of the kernel and thereby decrease the minimum possible
-            log probability.
+            (finite) log probability.
 
         Returns
         -------

@@ -3,7 +3,6 @@
 """
 Module for the NaiveKDE.
 """
-
 import itertools
 import numbers
 from typing import Callable, Optional, Union
@@ -56,17 +55,12 @@ class NaiveKDE(BaseKDE):
     """
 
     def __init__(
-        self,
-        kernel: Union[str, Callable] = "gaussian",
-        bw: Union[float, str, np.ndarray] = 1,
-        norm: float = 2,
+        self, kernel: Union[str, Callable] = "gaussian", bw: Union[float, str, np.ndarray] = 1, norm: float = 2
     ):
         super().__init__(kernel, bw)
         self.norm = norm
 
-    def fit(
-        self, data: np.ndarray, weights: Optional[np.ndarray] = None
-    ) -> "NaiveKDE":
+    def fit(self, data: np.ndarray, weights: Optional[np.ndarray] = None) -> "NaiveKDE":
         """
         Fit the KDE to the data. This validates the data and stores it.
         Computations are performed when the KDE is evaluated on a grid.
@@ -96,9 +90,7 @@ class NaiveKDE(BaseKDE):
         super().fit(data, weights)
         return self
 
-    def evaluate(
-        self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None
-    ) -> Union[np.ndarray, tuple]:
+    def evaluate(self, grid_points: Optional[Union[np.ndarray, int, tuple]] = None) -> Union[np.ndarray, tuple]:
         """
         Evaluate on grid points.
 
@@ -140,11 +132,7 @@ class NaiveKDE(BaseKDE):
 
         # TODO: Implementation w.r.t grid points for faster evaluation
         # See the SciPy evaluation for how this can be done
-        weights = (
-            itertools.repeat(1 / self.data.shape[0])
-            if self.weights is None
-            else self.weights
-        )
+        weights = itertools.repeat(1 / self.data.shape[0]) if self.weights is None else self.weights
 
         for weight, data_point, bw in zip(weights, self.data, bw):
             x = self.grid_points - data_point
